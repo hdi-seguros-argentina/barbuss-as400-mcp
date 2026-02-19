@@ -1,0 +1,22 @@
+{
+  "name": "barbuss-as400-mcp",
+  "version": "1.0.0",
+  "description": "AS400 MCP server and SQLite dictionary for Barbuss service programs (IBM i)",
+  "type": "module",
+  "scripts": {
+    "init-dict": "node data/init-svp-dict.mjs",
+    "fill-descriptions": "node scripts/svp-dict-fill-descriptions.mjs",
+    "query": "node scripts/svp-dict-query.mjs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["as400", "ibm-i", "mcp", "barbuss", "rpg", "sqlite"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "sql.js": "^1.11.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "ssh2": "^1.17.0",
+    "xlsx": "^0.18.5",
+    "zod": "^4.3.6"
+  }
+}

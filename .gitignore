@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# SQLite database (cada desarrollador puede generar el suyo con npm run init-dict)
+data/*.sqlite
+data/*.sqlite-journal
+
+# Credenciales y configuración local (NUNCA versionar)
+.env
+.env.*
+!.env.example
+.cursor/mcp.json
+
+# Logs y temporales
+*.log
+*.tmp
+/tmp/
+/temp/
+
+# OS
+.DS_Store
+Thumbs.db

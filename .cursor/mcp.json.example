@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "as400": {
+      "command": "node",
+      "args": [
+        "mcp-as400-server.mjs",
+        "--host=TU_HOST_AS400",
+        "--user=TU_USUARIO",
+        "--port=22",
+        "--timeout=60000"
+      ]
+    }
+  }
+}
