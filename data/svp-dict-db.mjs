@@ -193,6 +193,19 @@ export function updateDescriptionsFromNames(db, library, srvpgmName, forceAll = 
   return count;
 }
 
+/** Acorta descripción tipo bloque "-------- // método(): texto // ..." a una línea (máx 280 chars). */
+export function shortenBlockDescription(desc) {
+  if (!desc) return desc;
+  const needsShorten = desc.trimStart().startsWith('-') || desc.trimStart().startsWith('//');
+  if (!needsShorten && desc.length <= 280) return desc;
+  const noDashes = desc.replace(/^-+\s*/, '').replace(/^\/\/\s*/, '').trim();
+  const m = noDashes.match(/\):\s*([^\/]+?)(?:\s*\/\/|$)/);
+  if (m) return m[1].replace(/\s+/g, ' ').trim().slice(0, 280);
+  const parts = noDashes.split(/\s*\/\/\s*/).map((p) => p.replace(/-+/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const one = (parts[0] || noDashes).slice(0, 280);
+  return one.length >= 278 ? one.slice(0, 277) + '...' : one;
+}
+
 /**
  * Parsea fuente RPG y extrae descripciones.
  * Prioridad 1: Líneas con formato "MethodName : Descripción literal" (ej. en SEU, * SVPSIN_chgEstadosReclamo : Cambia Estados del Reclamo).
@@ -220,19 +233,43 @@ export function parseSourceDescriptions(sourceText, methodNames) {
     return false;
   }
 
-  // Pasada 1: formato "MethodName : Descripción literal" (ej. * SVPSIN_chgEstadosReclamo : Cambia Estados del Reclamo)
+  // Detecta si el texto de un comentario es cabecera de otro método (MethodName(): o MethodName :)
+  function isMethodHeaderComment(content) {
+    if (!content || !content.trim()) return false;
+    for (const m of methodNames) {
+      const re = new RegExp(`^\\s*${escapeRe(m)}\\s*\\(\\)?\\s*:`, 'i');
+      if (re.test(content)) return true;
+    }
+    return false;
+  }
+
+  function trimCommentLine(s) {
+    return s.replace(/\s*\*+\s*$/, '').trim();
+  }
+
   const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  for (const line of lines) {
-    const content = commentContent(line);
+  // Pasada 1: "MethodName : Descripción" o "methodName(): Descripción"; en AS400 la descripción sigue en líneas debajo
+  for (let i = 0; i < lines.length; i++) {
+    const content = commentContent(lines[i]);
     if (!content) continue;
     for (const m of methodNames) {
       if (result.has(m)) continue;
-      const re = new RegExp(`^\\s*${escapeRe(m)}\\s*:\\s*(.+)$`, 'i');
+      const re = new RegExp(`^\\s*${escapeRe(m)}\\s*\\(\\)?\\s*:\\s*(.+)$`, 'i');
       const match = content.match(re);
-      if (match) {
-        result.set(m, match[1].trim());
-        break;
+      if (!match) continue;
+      let desc = trimCommentLine(match[1]);
+      // Continuación en AS400: siguientes líneas de comentario que no son cabecera de otro método
+      let j = i + 1;
+      while (j < lines.length && isComment(lines[j])) {
+        const nextContent = commentContent(lines[j]);
+        const nextTrimmed = nextContent ? trimCommentLine(nextContent) : '';
+        if (!nextTrimmed) { j++; continue; }
+        if (isMethodHeaderComment(nextTrimmed)) break;
+        desc = (desc + ' ' + nextTrimmed).trim();
+        j++;
       }
+      result.set(m, desc);
+      break;
     }
   }
 
@@ -266,12 +303,15 @@ export function parseSourceDescriptions(sourceText, methodNames) {
     while (j >= 0 && (isComment(lines[j]) || lines[j].trim() === '')) {
       if (lines[j].trim() !== '') {
         const c = lines[j].trim().replace(/^\/\/\s*/, '').replace(/^\*\*\s*/, '').replace(/^\*\s*/, '').trim();
-        if (c) comments.unshift(c);
+        if (c && !/^[-*\s\/]+$/.test(c)) comments.unshift(c);
       }
       j--;
     }
-    const desc = comments.join(' ').replace(/\s+/g, ' ').trim();
-    if (desc && !result.has(exportName)) result.set(exportName, desc);
+    let desc = comments.join(' ').replace(/\s+/g, ' ').trim();
+    if (desc) {
+      desc = shortenBlockDescription(desc); // exported above
+      if (desc && !result.has(exportName)) result.set(exportName, desc);
+    }
   }
 
   return result;

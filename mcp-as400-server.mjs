@@ -358,6 +358,53 @@ server.tool(
   }
 );
 
+// Tool: svp_dict_fill_from_source_all — rellenar descripciones desde el fuente para TODOS los SVP del diccionario
+server.tool(
+  'svp_dict_fill_from_source_all',
+  'For every service program in the local SQLite dictionary (srvpgm table), read its source member from the AS400, parse procedure comments, and update method descriptions. Slow: ~10–30 s per SVP. Use when you want real descriptions for all methods at once.',
+  {},
+  async () => {
+    try {
+      const { openDb, querySrvpgmList, updateDescriptionsFromSource } = await getSvpDict();
+      const db = await openDb();
+      const list = querySrvpgmList(db);
+      if (!list.length) {
+        db.close();
+        return { content: [{ type: 'text', text: 'No hay programas de servicio en el diccionario. Ejecutá svp_dict_sync para cada SVP primero.' }] };
+      }
+      const sshConfig = await getConfig();
+      const safe = (s) => s.replace(/[/\\'"]/g, '_');
+      const sourceFile = 'QFUENTES';
+      const results = [];
+      for (const row of list) {
+        const { library, name: srvpgm_name } = row;
+        try {
+          const stmf = `/tmp/srcread_${safe(srvpgm_name)}.txt`;
+          const fromMbr = `/QSYS.LIB/${library}.LIB/${sourceFile}.FILE/${srvpgm_name}.MBR`;
+          const cl = `CPYTOSTMF FROMMBR('${fromMbr}') TOSTMF('${stmf}') STMFOPT(*REPLACE)`;
+          const clEscaped = cl.replace(/'/g, "'\\''");
+          const qsh = `qsh -c 'system "${clEscaped}" && cat "${stmf}"'`;
+          const result = await runSshCommand(sshConfig, qsh);
+          const sourceText = result.content?.[0]?.text || '';
+          const count = updateDescriptionsFromSource(db, library, srvpgm_name, sourceText);
+          results.push({ library, srvpgm_name, count });
+        } catch (err) {
+          results.push({ library, srvpgm_name, error: err.message || String(err) });
+        }
+      }
+      db.close();
+      const lines = results.map((r) => ('error' in r ? `${r.library}/${r.srvpgm_name}: ERROR ${r.error}` : `${r.library}/${r.srvpgm_name}: ${r.count} descripciones actualizadas`));
+      return { content: [{ type: 'text', text: `svp_dict_fill_from_source_all terminado.\n${lines.join('\n')}` }] };
+    } catch (err) {
+      const msg = err.message || '';
+      if (msg.includes('sql.js') || msg.includes('Cannot find module')) {
+        return { content: [{ type: 'text', text: 'Diccionario SQLite: ejecutá "npm install" y node data/init-svp-dict.mjs' }] };
+      }
+      throw err;
+    }
+  }
+);
+
 // Tool: svp_dict_sync — traer exports de un SRVPGM desde AS400 y guardarlos en el diccionario SQLite
 server.tool(
   'svp_dict_sync',
@@ -394,4 +441,4 @@ server.tool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error('AS400 MCP Server running (tools: exec, query, describe_table, list_tables, find_table, table_dependents, program_references, list_file_members, list_srvpgm_exports, read_source_member, svp_dict_fill_from_source, svp_dict_query, svp_dict_sync)');
+console.error('AS400 MCP Server running (tools: exec, query, describe_table, list_tables, find_table, table_dependents, program_references, list_file_members, list_srvpgm_exports, read_source_member, svp_dict_fill_from_source, svp_dict_fill_from_source_all, svp_dict_query, svp_dict_sync)');
