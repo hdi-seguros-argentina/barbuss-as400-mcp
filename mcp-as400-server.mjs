@@ -192,6 +192,48 @@ server.tool(
   }
 );
 
+// Tool: table_dependents — dependientes de un archivo (lógicos, programas que lo usan). DSPDBR + SELECT.
+server.tool(
+  'table_dependents',
+  'List dependents of a physical file: logical files (views/joins over it) and programs that use it. Uses DSPDBR OUTPUT(*OUTFILE) then query. output_library must have write authority (e.g. personal library). Returns file/library/type for each dependent.',
+  {
+    library: z.string().describe('Library of the physical file (e.g. AXAREAL, AXA.FILE)'),
+    file: z.string().describe('Physical file / table name'),
+    output_library: z.string().describe('Library for DSPDBR OUTFILE (must have write, e.g. personal library)'),
+  },
+  async ({ library, file, output_library }) => {
+    const sshConfig = await getConfig();
+    const clCmd = `DSPDBR FILE(${library}/${file}) OUTPUT(*OUTFILE) OUTFILE(${output_library}/TMPDBR)`;
+    const clEscaped = clCmd.replace(/'/g, "'\\''");
+    const qshCmd = `qsh -c 'system "${clEscaped}"'`;
+    await runSshCommand(sshConfig, qshCmd);
+    const safeOut = output_library.replace(/'/g, "''");
+    const sql = `SELECT * FROM ${safeOut}.TMPDBR`;
+    return runQuery(sshConfig, sql);
+  }
+);
+
+// Tool: program_references — archivos y objetos que usa un programa. DSPPGMREF + SELECT.
+server.tool(
+  'program_references',
+  'List objects (files, programs, etc.) referenced by a program. Uses DSPPGMREF OUTPUT(*OUTFILE) then query. output_library must have write. Use to see input/output/update usage of files by a program.',
+  {
+    library: z.string().describe('Library of the program'),
+    program: z.string().describe('Program name'),
+    output_library: z.string().describe('Library for OUTFILE (must have write)'),
+  },
+  async ({ library, program, output_library }) => {
+    const sshConfig = await getConfig();
+    const clCmd = `DSPPGMREF PGM(${library}/${program}) OUTPUT(*OUTFILE) OUTFILE(${output_library}/TMPPGR)`;
+    const clEscaped = clCmd.replace(/'/g, "'\\''");
+    const qshCmd = `qsh -c 'system "${clEscaped}"'`;
+    await runSshCommand(sshConfig, qshCmd);
+    const safeOut = output_library.replace(/'/g, "''");
+    const sql = `SELECT * FROM ${safeOut}.TMPPGR`;
+    return runQuery(sshConfig, sql);
+  }
+);
+
 // Tool: list_srvpgm_exports — listar procedimientos exportados de un SRVPGM
 server.tool(
   'list_srvpgm_exports',
@@ -352,4 +394,4 @@ server.tool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error('AS400 MCP Server running (tools: exec, query, describe_table, list_tables, find_table, list_file_members, list_srvpgm_exports, read_source_member, svp_dict_fill_from_source, svp_dict_query, svp_dict_sync)');
+console.error('AS400 MCP Server running (tools: exec, query, describe_table, list_tables, find_table, table_dependents, program_references, list_file_members, list_srvpgm_exports, read_source_member, svp_dict_fill_from_source, svp_dict_query, svp_dict_sync)');

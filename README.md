@@ -22,7 +22,7 @@ Cualquier persona o agente que clone el repo debe poder instalar todo sin creden
 ### 1. Clonar e instalar dependencias
 
 ```bash
-git clone <url-del-repo-barbuss>
+git clone https://github.com/hdi-seguros-argentina/barbuss-as400-mcp.git
 cd <nombre-del-repo>
 npm install
 ```
@@ -96,11 +96,13 @@ Con el servidor configurado, en Cursor podés pedir al asistente que use estas h
 | **describe_table** | Listar columnas de una tabla (schema + tabla). |
 | **list_tables** | Listar tablas/archivos en una biblioteca. |
 | **find_table** | Buscar tabla por nombre en todas las bibliotecas. |
+| **table_dependents** | Dependientes de un archivo físico (DSPDBR): archivos lógicos (views/joins) y programas que usan esa tabla. Requiere `output_library` con escritura. |
+| **program_references** | Objetos que usa un programa (DSPPGMREF): archivos (input/output/update), otros programas. Requiere `output_library` con escritura. |
 | **list_file_members** | Listar miembros de un archivo físico (ej. QFUENTES). |
 | **list_srvpgm_exports** | Listar procedimientos exportados de un service program. |
 | **read_source_member** | Leer el contenido de un miembro de fuente (CPYTOSTMF + cat). |
 | **svp_dict_sync** | Traer exports de un SVP desde AS400 y guardarlos en el SQLite. |
-| **svp_dict_fill_from_source** | Leer el fuente del SVP en AS400, extraer comentarios de procedimientos y actualizar descripciones en el SQLite. |
+| **svp_dict_fill_from_source** | Leer el fuente del SVP en AS400, extraer descripciones (formato `MethodName : Descripción` o comentarios encima de EXPORT) y actualizar el SQLite. ~10–30 s por SVP. |
 | **svp_dict_query** | Consultar el diccionario SQLite (sin conexión AS400). |
 
 ---
@@ -113,7 +115,7 @@ Con el servidor configurado, en Cursor podés pedir al asistente que use estas h
 ### Flujo típico
 
 1. **Poblar métodos desde AS400:** usar en Cursor la herramienta **svp_dict_sync**(library, srvpgm_name), por ejemplo `AXA.PGMR` y `SPVSPO`.
-2. **Descripciones desde el fuente:** **svp_dict_fill_from_source**(library, srvpgm_name) lee el miembro en AS400, busca comentarios encima de `DCL-PROC ... EXPORT` o `P name B EXPORT` y actualiza la columna `description`.
+2. **Descripciones desde el fuente:** **svp_dict_fill_from_source**(library, srvpgm_name) lee el miembro en AS400 y extrae descripciones de: (a) líneas con formato `MethodName : Descripción literal` (ej. en SEU), (b) comentarios encima de `DCL-PROC ... EXPORT` o `P name B EXPORT`. Tarda ~10–30 s por SVP; el skill indica al asistente que ofrezca esta opción y avise el tiempo si el usuario acepta.
 3. **Descripciones inferidas por nombre:** si no hay comentarios en el fuente, podés ejecutar localmente `npm run fill-descriptions -- AXA.PGMR SPVSPO` (opción `--force` para reemplazar todas).
 
 ### Scripts por línea de comandos (sin Cursor)
@@ -138,6 +140,18 @@ node scripts/svp-dict-fill-from-source.mjs AXA.PGMR SPVSPO < SPVSPO.src
 
 ---
 
+## Búsqueda de tabla, lógicos y programas que la usan
+
+Para saber **qué lógicos** (views/joins) tiene una tabla y **qué programas** la usan (input, lectura, etc.):
+
+1. **Ubicar la tabla:** **find_table**(nombre) → devuelve biblioteca y nombre.
+2. **Dependientes (lógicos + programas):** **table_dependents**(library, file, output_library). Ejecuta DSPDBR en el AS400 y devuelve archivos lógicos y programas que dependen de ese archivo físico. Necesitás una **output_library** con permiso de escritura (ej. tu biblioteca personal); el comando crea ahí un archivo temporal (TMPDBR).
+3. **“Toda la lógica” de un programa:** si querés ver qué archivos y objetos usa cada programa que toca la tabla, usá **program_references**(library, program, output_library) por cada programa. Ejecuta DSPPGMREF y devuelve archivos (con modo input/output/update) y otros programas referenciados. También usa un archivo temporal (TMPPGR) en `output_library`.
+
+El skill del proyecto indica al asistente que, cuando pidan buscar una tabla o sus lógicos/programas, ofrezca este flujo y, si aceptan, ejecute find_table → table_dependents y opcionalmente program_references para cada programa.
+
+---
+
 ## Estructura del proyecto
 
 ```
@@ -153,7 +167,7 @@ node scripts/svp-dict-fill-from-source.mjs AXA.PGMR SPVSPO < SPVSPO.src
 │   ├── svp-dict-query.mjs
 │   ├── svp-dict-fill-descriptions.mjs
 │   └── svp-dict-fill-from-source.mjs
-├── mcp-as400-server.mjs    # Servidor MCP (exec, query, list_*, svp_dict_*)
+├── mcp-as400-server.mjs    # Servidor MCP (exec, query, table_dependents, program_references, list_*, svp_dict_*, etc.)
 ├── package.json
 ├── .gitignore
 └── README.md

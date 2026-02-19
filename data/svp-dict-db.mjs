@@ -194,14 +194,23 @@ export function updateDescriptionsFromNames(db, library, srvpgmName, forceAll = 
 }
 
 /**
- * Parsea fuente RPG (free o fixed) y extrae descripciones de comentarios
- * encima de cada procedimiento exportado (DCL-PROC ... EXPORT o P name B EXPORT).
- * Devuelve Map: method_name -> descripción (solo métodos que tengan comentario).
+ * Parsea fuente RPG y extrae descripciones.
+ * Prioridad 1: Líneas con formato "MethodName : Descripción literal" (ej. en SEU, * SVPSIN_chgEstadosReclamo : Cambia Estados del Reclamo).
+ * Prioridad 2: Comentarios encima de DCL-PROC ... EXPORT o P name B EXPORT.
  */
 export function parseSourceDescriptions(sourceText, methodNames) {
   const lines = (sourceText || '').split(/\r?\n/);
   const result = new Map();
   const methodSet = new Set(methodNames);
+
+  function commentContent(line) {
+    const t = line.trim();
+    if (!t) return '';
+    if (t.startsWith('//')) return t.slice(2).trim();
+    if (t.startsWith('**')) return t.slice(2).trim();
+    if (line.length >= 7 && line[6] === '*') return line.slice(7).trim();
+    return '';
+  }
 
   function isComment(line) {
     const t = line.trim();
@@ -209,6 +218,22 @@ export function parseSourceDescriptions(sourceText, methodNames) {
     if (t.startsWith('//') || t.startsWith('**')) return true;
     if (line.length >= 7 && line[6] === '*') return true; // fixed format col 7
     return false;
+  }
+
+  // Pasada 1: formato "MethodName : Descripción literal" (ej. * SVPSIN_chgEstadosReclamo : Cambia Estados del Reclamo)
+  const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  for (const line of lines) {
+    const content = commentContent(line);
+    if (!content) continue;
+    for (const m of methodNames) {
+      if (result.has(m)) continue;
+      const re = new RegExp(`^\\s*${escapeRe(m)}\\s*:\\s*(.+)$`, 'i');
+      const match = content.match(re);
+      if (match) {
+        result.set(m, match[1].trim());
+        break;
+      }
+    }
   }
 
   function extractProcNameFromLine(line) {

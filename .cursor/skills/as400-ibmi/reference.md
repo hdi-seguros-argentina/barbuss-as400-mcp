@@ -21,6 +21,8 @@ Algunos objetos pueden estar mal nomenclados; conviene chequear WSR (GET) vs WSP
 - **describe_table(schema, table)**: columnas desde QSYS2.SYSCOLUMNS.
 - **list_tables(schema, limit?)**: tablas en una biblioteca desde QSYS2.SYSTABLES.
 - **find_table(pattern, limit?)**: búsqueda por nombre de tabla en todas las bibliotecas.
+- **table_dependents(library, file, output_library)**: dependientes de un archivo físico (DSPDBR): lógicos y programas que usan esa tabla. output_library con escritura.
+- **program_references(library, program, output_library)**: objetos que usa un programa (DSPPGMREF): archivos (input/output/update), otros programas, etc. output_library con escritura.
 - **list_file_members(library, file, output_library)**: lista miembros de **cualquier** archivo físico. library y file son libres: personal, AXA.PGMR/QFUENTES, AXA.FILE/QGCTAALL, QCLSRC, etc. output_library = cualquier biblio con escritura (ej. INF1LUIS o biblio personal). Campo del outfile: MBMEMBER (si falla, SELECT * para ver la estructura).
 - **list_srvpgm_exports(schema, srvpgm_name)**: procedimientos exportados de un SRVPGM desde AS400.
 - **svp_dict_query(library?, srvpgm_name?, method_pattern?)**: consulta el diccionario SQLite local (`data/barbuss_svp.sqlite`). Sin AS400.

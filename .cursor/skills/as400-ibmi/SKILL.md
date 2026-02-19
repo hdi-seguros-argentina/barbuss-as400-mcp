@@ -58,17 +58,21 @@ Si la **biblioteca** se llama con punto (ej. **AXA.FILE**), en SQL el esquema es
 3. **Catálogo**  
    En `QSYS2.SYSTABLES` / `QSYS2.SYSCOLUMNS` el esquema puede aparecer como `AXA.FILE`; eso no garantiza que `FROM "AXA.FILE".TABLA` funcione en runtime. Si falla, usar (1) o (2).
 
-## MCP AS400 (exec, query, describe_table, list_tables, find_table, list_file_members, list_srvpgm_exports, svp_dict_query, svp_dict_sync)
+## MCP AS400 (exec, query, describe_table, list_tables, find_table, table_dependents, program_references, list_file_members, list_srvpgm_exports, read_source_member, svp_dict_query, svp_dict_sync, svp_dict_fill_from_source)
 
 - **exec**: ejecuta un comando en el shell del AS400 por SSH (CL, QSH, etc.).
 - **query**: ejecuta **una** sentencia SQL con `qsh -c "db2 \"...\""`. No usar punto y coma final.
 - **describe_table**: recibe `schema` y `table`; devuelve columnas (nombre, posición, tipo, longitud) desde QSYS2.SYSCOLUMNS.
 - **list_tables**: recibe `schema` (biblioteca); devuelve lista de tablas/archivos en esa biblioteca desde QSYS2.SYSTABLES.
 - **find_table**: recibe `pattern` (nombre o parte); busca en QSYS2.SYSTABLES en todas las bibliotecas y devuelve TABLE_SCHEMA y TABLE_NAME.
+- **table_dependents**: recibe `library`, `file` (archivo físico/tabla), `output_library`. Ejecuta DSPDBR y devuelve **dependientes**: archivos lógicos (views/joins sobre esa tabla) y **programas que usan esa tabla** (input, lectura, etc.). Necesita una output_library con permiso de escritura.
+- **program_references**: recibe `library`, `program`, `output_library`. Ejecuta DSPPGMREF y devuelve **objetos que usa el programa** (archivos con modo de uso input/output/update, otros programas, etc.). Útil para “toda la lógica” de un programa una vez que sabés qué programas usan una tabla.
 - **list_file_members**: recibe `library`, `file`, `output_library`. Lista los miembros de **cualquier** archivo físico. Podés enviar cualquier biblioteca (personal, AXA.PGMR, AXA.FILE, …) y cualquier archivo (QFUENTES, QGCTAALL, QCLSRC, …). output_library = una biblio con permiso de escritura (puede ser tu biblio personal).
 - **list_srvpgm_exports**: recibe `schema` y `srvpgm_name`. Lista los procedimientos exportados de un SRVPGM desde el AS400.
 - **svp_dict_query**: consulta el **diccionario local** (SQLite en `data/barbuss_svp.sqlite`). Parámetros opcionales: `library`, `srvpgm_name`, `method_pattern`. Sin conexión AS400. Ideal para buscar métodos cuando el diccionario ya está poblado.
 - **svp_dict_sync**: trae los exports de un SRVPGM desde el AS400 y los guarda en el SQLite. Parámetros: `library`, `srvpgm_name`. Ejecutar para poblar o actualizar el diccionario.
+- **svp_dict_fill_from_source**: lee el miembro de fuente del SVP en el AS400, extrae descripciones (formato `MethodName : Descripción` o comentarios encima de EXPORT) y actualiza el SQLite. Parámetros: `library`, `srvpgm_name`, opcional `source_file`. Tarda ~10–30 s por SVP; ofrecer esta opción cuando pidan métodos/descripciones y avisar el tiempo si aceptan.
+- **read_source_member**: lee el contenido de un miembro de fuente (library, file, member). Útil para pegar el fuente y usar con el script local de fill-from-source.
 
 Al escribir SQL para el MCP:
 
@@ -87,3 +91,23 @@ Al escribir SQL para el MCP:
 | Listar tablas de una biblioteca | Usar **list_tables(schema)**. |
 | Métodos de un SVP / qué SVP usar | **svp_dict_query** (SQLite local) o **list_srvpgm_exports** (AS400). Poblar diccionario: **svp_dict_sync**(library, srvpgm_name). Base: `data/barbuss_svp.sqlite`. |
 | Listar miembros de un archivo (cualquier biblio/archivo) | **list_file_members**(library, file, output_library). Podés enviar biblio personal, AXA.PGMR/QFUENTES, AXA.FILE/QGCTAALL, QCLSRC, etc. |
+| Buscar tabla + lógicos + programas que la usan | **find_table**(nombre) para ubicar la tabla; **table_dependents**(library, file, output_library) para lógicos y programas que la usan. Si quieren “toda la lógica” de esos programas: **program_references**(library, program, output_library) por cada programa. |
+
+## Descripciones de métodos de SVP (fuente vs inferidas)
+
+Cuando te pidan **listar métodos de un SVP**, **cargar el diccionario**, **rellenar descripciones** o algo similar:
+
+1. **Ofrecer siempre** si quiere buscar las descripciones desde el **fuente** (comentarios en AXA.PGMR/QFUENTES, formato `MethodName : Descripción` o encima de DCL-PROC/EXPORT). Herramienta: **svp_dict_fill_from_source**(library, srvpgm_name).
+2. Si dice que **sí**: antes de ejecutar, **decirle cuánto más va a demorar** (ej.: “Va a demorar unos 10–30 segundos por SVP: leo el miembro en el AS400 y parseo los comentarios”). Luego ejecutar **svp_dict_fill_from_source**.
+3. Si dice que **no** (o no responde): usar solo **svp_dict_sync** + descripciones inferidas por nombre (script local `svp-dict-fill-descriptions.mjs` o las que ya estén en el SQLite).
+
+## Búsqueda de tabla, lógicos, joins y programas que la usan
+
+Cuando te pidan **buscar una tabla**, **qué lógicos tiene**, **joins** o **qué programas usan esa tabla** (input, lectura, etc.):
+
+1. **Ofrecer** si quieren que busque: (a) la tabla y en qué biblioteca está, (b) sus **lógicos** (archivos lógicos / “joins” sobre esa tabla), (c) **programas que usan esa tabla** (input, lectura, update, etc.), y (d) si quieren, **toda la lógica** de esos programas (archivos y objetos que usa cada programa).
+2. Si dicen que **sí**:  
+   - Usar **find_table**(nombre) para ubicar la tabla (biblioteca/schema).  
+   - Usar **table_dependents**(library, file, output_library) con la biblioteca y archivo de la tabla; eso devuelve lógicos y programas dependientes. Indicar que hace falta una **output_library** con permiso de escritura (ej. biblioteca personal).  
+   - Si piden “toda la lógica” de los programas: para cada programa devuelto, usar **program_references**(library, program, output_library) para listar archivos (y modo de uso) y otros objetos que usa ese programa.
+3. Resumir: tabla encontrada, lista de lógicos (y joins si aplica), lista de programas que la usan y, si se pidió, referencias de cada programa.
