@@ -271,7 +271,9 @@ server.tool(
     const stmf = `/tmp/srcread_${safe(member)}.txt`;
     const fromMbr = `/QSYS.LIB/${library}.LIB/${file}.FILE/${member}.MBR`;
     const cl = `CPYTOSTMF FROMMBR('${fromMbr}') TOSTMF('${stmf}') STMFOPT(*REPLACE)`;
-    const qsh = `qsh -c 'system "${cl.replace(/"/g, '\\"')}" && cat "${stmf}"'`;
+    // Escapar comillas simples para que la shell no cierre la cadena de qsh -c '...'
+    const clEscaped = cl.replace(/'/g, "'\\''");
+    const qsh = `qsh -c 'system "${clEscaped}" && cat "${stmf}"'`;
     return runSshCommand(sshConfig, qsh);
   }
 );
@@ -292,7 +294,8 @@ server.tool(
       const stmf = `/tmp/srcread_${safe(srvpgm_name)}.txt`;
       const fromMbr = `/QSYS.LIB/${library}.LIB/${source_file}.FILE/${srvpgm_name}.MBR`;
       const cl = `CPYTOSTMF FROMMBR('${fromMbr}') TOSTMF('${stmf}') STMFOPT(*REPLACE)`;
-      const qsh = `qsh -c 'system "${cl.replace(/"/g, '\\"')}" && cat "${stmf}"'`;
+      const clEscaped = cl.replace(/'/g, "'\\''");
+      const qsh = `qsh -c 'system "${clEscaped}" && cat "${stmf}"'`;
       const result = await runSshCommand(sshConfig, qsh);
       const sourceText = result.content?.[0]?.text || '';
       const { openDb, updateDescriptionsFromSource } = await getSvpDict();
